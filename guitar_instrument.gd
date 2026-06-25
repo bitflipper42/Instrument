@@ -14,9 +14,9 @@ const DOT_FRETS: PackedInt32Array = [3, 5, 7, 9]
 @export var open_zone_color: Color = Color(0.26, 0.16, 0.09)
 @export var fret_color: Color = Color(0.78, 0.78, 0.80)
 @export var string_color: Color = Color(0.70, 0.70, 0.72)
-@export var marker_color: Color = Color(0.92, 0.90, 0.84)
+@export var marker_color: Color = Color(0.76, 0.72, 0.64)
 @export var marker_text_color: Color = Color(0.22, 0.18, 0.14)
-@export var active_marker_color: Color = Color(0.35, 0.70, 0.95)
+@export var active_marker_color: Color = Color(0.22, 0.50, 0.78)
 @export var edge_line_color: Color = Color(0.88, 0.86, 0.82)
 
 const TITLE_HEIGHT := 28.0
@@ -53,31 +53,21 @@ func _input(event: InputEvent) -> void:
 	var local_pos := click.global_position - global_position
 	var note := _note_at(local_pos)
 	if note != "":
-		emit_note(note)
+		play_note(note)
 
 
 func emit_note(note: String) -> bool:
-	var n := _normalize_pitch(note)
-	if n == "":
-		push_warning("GuitarInstrument: invalid note '%s'" % note)
-		return false
-	current_note = n
-	_show_open_markers = false
-	queue_redraw()
-	note_emitted.emit(n)
-	return true
+	var ok := super.emit_note(note)
+	if ok:
+		_show_open_markers = false
+	return ok
 
 
 func receive_note(note: String) -> bool:
-	var n := _normalize_pitch(note)
-	if n == "":
-		push_warning("GuitarInstrument: invalid note '%s'" % note)
-		return false
-	current_note = n
-	_show_open_markers = true
-	queue_redraw()
-	note_received.emit(n)
-	return true
+	var ok := super.receive_note(note)
+	if ok:
+		_show_open_markers = true
+	return ok
 
 
 func _draw() -> void:
@@ -297,50 +287,4 @@ func _note_for(string_idx: int, fret: int) -> String:
 	var open_pc := CHROMATIC.find(open_pitch)
 	var octave: int = OPEN_STRING_OCTAVES[string_idx]
 	var midi := (octave + 1) * 12 + open_pc + fret
-	var pc := midi % 12
-	octave = int(midi / 12) - 1
-	return CHROMATIC[pc] + str(octave)
-
-
-func _split_pitch(note: String) -> Dictionary:
-	var n := note.strip_edges()
-	if n.is_empty():
-		return {}
-	var octave_start := -1
-	for i in n.length():
-		if n[i].is_valid_int():
-			octave_start = i
-			break
-	if octave_start < 0:
-		return {}
-	var pitch_part := normalize_note(n.substr(0, octave_start))
-	if not CHROMATIC.has(pitch_part):
-		return {}
-	var octave_str := n.substr(octave_start)
-	if not octave_str.is_valid_int():
-		return {}
-	return {"pitch": pitch_part, "octave": int(octave_str)}
-
-
-func _normalize_pitch(note: String) -> String:
-	var parsed := _split_pitch(note)
-	if not parsed.is_empty():
-		return parsed["pitch"] + str(parsed["octave"])
-	var pitch := normalize_note(note)
-	if CHROMATIC.has(pitch):
-		return pitch
-	return ""
-
-
-func _note_matches(key_note: String) -> bool:
-	if current_note == "":
-		return false
-	if key_note == current_note:
-		return true
-	var current_parsed := _split_pitch(current_note)
-	if current_parsed.is_empty():
-		var key_parsed := _split_pitch(key_note)
-		if key_parsed.is_empty():
-			return normalize_note(current_note) == normalize_note(key_note)
-		return normalize_note(current_note) == key_parsed["pitch"]
-	return false
+	return _midi_to_name(midi)

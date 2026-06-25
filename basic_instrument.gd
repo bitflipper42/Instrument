@@ -1,7 +1,7 @@
 class_name BasicInstrument
 extends InstTile
 
-## A tile that can receive and emit musical note names ("C", "C#", "D", ...).
+## A tile that can receive and emit musical note names ("C", "C#", "C4", ...).
 ## Connect one instrument's `note_emitted` to another's `receive_note` (or use
 ## `connect_to`) to pass notes along a chain.
 
@@ -36,14 +36,18 @@ func normalize_note(note: String) -> String:
 		return FLAT_ALIASES[n]
 	return n
 
-## True if `note` is a recognized chromatic note name.
+## True if `note` is a recognized pitch or pitch+octave name.
 func is_valid_note(note: String) -> bool:
-	return CHROMATIC.has(normalize_note(note))
+	return _normalize_pitch(note) != ""
+
+## User-initiated note (e.g. click). Updates state and emits `note_emitted`.
+func play_note(note: String) -> bool:
+	return emit_note(note)
 
 ## Sends a note out to any listeners. Returns false if the note is invalid.
 func emit_note(note: String) -> bool:
-	var n := normalize_note(note)
-	if not CHROMATIC.has(n):
+	var n := _normalize_pitch(note)
+	if n == "":
 		push_warning("BasicInstrument: invalid note '%s'" % note)
 		return false
 	current_note = n
@@ -51,10 +55,11 @@ func emit_note(note: String) -> bool:
 	note_emitted.emit(n)
 	return true
 
-## Handles an incoming note. Returns false if the note is invalid.
+## Handles an incoming note from another instrument. Updates state only;
+## does not emit `note_emitted` (avoids feedback loops when bidirectionally connected).
 func receive_note(note: String) -> bool:
-	var n := normalize_note(note)
-	if not CHROMATIC.has(n):
+	var n := _normalize_pitch(note)
+	if n == "":
 		push_warning("BasicInstrument: invalid note '%s'" % note)
 		return false
 	current_note = n
@@ -66,6 +71,78 @@ func receive_note(note: String) -> bool:
 func connect_to(other: BasicInstrument) -> void:
 	if not note_emitted.is_connected(other.receive_note):
 		note_emitted.connect(other.receive_note)
+
+
+## Two-way routing: each instrument's clicks reach the other, but
+## `receive_note` never re-emits, so there is no feedback loop.
+func connect_bidirectional(other: BasicInstrument) -> void:
+	connect_to(other)
+	other.connect_to(self)
+
+
+func _split_pitch(note: String) -> Dictionary:
+	var n := note.strip_edges()
+	if n.is_empty():
+		return {}
+	var octave_start := -1
+	for i in n.length():
+		if n[i].is_valid_int():
+			octave_start = i
+			break
+	if octave_start < 0:
+		return {}
+	var pitch_part := normalize_note(n.substr(0, octave_start))
+	if not CHROMATIC.has(pitch_part):
+		return {}
+	var octave_str := n.substr(octave_start)
+	if not octave_str.is_valid_int():
+		return {}
+	return {"pitch": pitch_part, "octave": int(octave_str)}
+
+
+func _normalize_pitch(note: String) -> String:
+	var parsed := _split_pitch(note)
+	if not parsed.is_empty():
+		return parsed["pitch"] + str(parsed["octave"])
+	var pitch := normalize_note(note)
+	if CHROMATIC.has(pitch):
+		return pitch
+	return ""
+
+
+func _name_to_midi(note: String) -> int:
+	var parsed := _split_pitch(note)
+	if parsed.is_empty():
+		return -1
+	var pitch: String = parsed["pitch"]
+	var octave: int = parsed["octave"]
+	var pc := CHROMATIC.find(pitch)
+	if pc < 0:
+		return -1
+	return (octave + 1) * 12 + pc
+
+
+func _midi_to_name(midi: int) -> String:
+	var octave := int(midi / 12) - 1
+	return CHROMATIC[midi % 12] + str(octave)
+
+
+## True when `key_note` should highlight for the current stored note.
+func _note_matches(key_note: String) -> bool:
+	if current_note == "":
+		return false
+	if key_note == current_note:
+		return true
+	var current_parsed := _split_pitch(current_note)
+	var key_parsed := _split_pitch(key_note)
+	if current_parsed.is_empty() and key_parsed.is_empty():
+		return normalize_note(current_note) == normalize_note(key_note)
+	if current_parsed.is_empty():
+		return normalize_note(current_note) == key_parsed["pitch"]
+	if key_parsed.is_empty():
+		return false
+	return _name_to_midi(current_note) == _name_to_midi(key_note)
+
 
 func _draw() -> void:
 	super._draw()

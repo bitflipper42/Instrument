@@ -1,11 +1,10 @@
 class_name PianoInstrument
 extends BasicInstrument
 
-## Full 88-key piano (A0–C8) derived from BasicInstrument. Draws all white and
-## black keys across the tile and emits octave-qualified note names on click.
+## 64-key piano (A1–C7): full 88-key range with one octave removed from each end.
 
-const MIDI_LOW := 21   # A0
-const MIDI_HIGH := 108 # C8
+const MIDI_LOW := 33   # A1
+const MIDI_HIGH := 96  # C7
 const WHITE_PITCH_CLASSES: PackedInt32Array = [0, 2, 4, 5, 7, 9, 11]
 ## Pitch-class index within an octave -> 1 if a black key sits to its right.
 const BLACK_OFFSET_BY_PC: PackedInt32Array = [1, 0, 1, 0, 0, 1, 0, 1, 0, 1, 0, 0]
@@ -13,14 +12,15 @@ const BLACK_OFFSET_BY_PC: PackedInt32Array = [1, 0, 1, 0, 0, 1, 0, 1, 0, 1, 0, 0
 @export var white_key_color: Color = Color(0.94, 0.94, 0.90)
 @export var black_key_color: Color = Color(0.12, 0.12, 0.14)
 @export var key_border_color: Color = Color(0.55, 0.55, 0.58)
-@export var active_key_color: Color = Color(0.35, 0.70, 0.95)
+@export var active_key_color: Color = Color(0.22, 0.50, 0.78)
+@export var marker_fill_color: Color = Color(0.92, 0.90, 0.84)
+@export var marker_text_color: Color = Color(0.22, 0.18, 0.14)
 @export var stretcher_color: Color = Color(0.30, 0.22, 0.15)
 @export var stretcher_border_color: Color = Color(0.18, 0.12, 0.08)
 
 ## White-key depth / width ratio on a real piano (~165 mm / 23.5 mm).
 const WHITE_KEY_DEPTH_RATIO := 7.0
 const BLACK_KEY_HEIGHT_RATIO := 0.62
-const WHITE_KEY_COUNT := 52
 
 const TITLE_HEIGHT := 28.0
 const KEYBOARD_PADDING := Vector2(8.0, 6.0)
@@ -30,12 +30,16 @@ var _black_keys: Array[Dictionary] = []
 var _top_stretcher_rect := Rect2()
 var _bottom_stretcher_rect := Rect2()
 var _keyboard_area := Rect2()
+var _bold_marker_font: FontVariation
 
 
 func _ready() -> void:
 	super._ready()
 	if title == "Instrument":
 		title = "Piano"
+	_bold_marker_font = FontVariation.new()
+	_bold_marker_font.base_font = ThemeDB.fallback_font
+	_bold_marker_font.variation_embolden = 1.2
 
 
 func _input(event: InputEvent) -> void:
@@ -50,30 +54,19 @@ func _input(event: InputEvent) -> void:
 	var local_pos := click.global_position - global_position
 	var note := _note_at(local_pos)
 	if note != "":
-		emit_note(note)
+		play_note(note)
 
 
-## Accepts octave-qualified names ("C4", "A0") and plain chromatic names ("C").
 func emit_note(note: String) -> bool:
 	var n := _normalize_pitch(note)
 	if n == "" or not _is_valid_piano_note(n):
 		push_warning("PianoInstrument: invalid note '%s'" % note)
 		return false
-	current_note = n
-	queue_redraw()
-	note_emitted.emit(n)
-	return true
+	return super.emit_note(note)
 
 
 func receive_note(note: String) -> bool:
-	var n := _normalize_pitch(note)
-	if n == "":
-		push_warning("PianoInstrument: invalid note '%s'" % note)
-		return false
-	current_note = n
-	queue_redraw()
-	note_received.emit(n)
-	return true
+	return super.receive_note(note)
 
 
 func _draw() -> void:
@@ -114,7 +107,11 @@ func _update_layout() -> void:
 		_keyboard_area = Rect2()
 		return
 
-	var white_width := body.size.x / float(WHITE_KEY_COUNT)
+	var white_count := _white_key_count()
+	if white_count == 0:
+		return
+
+	var white_width := body.size.x / float(white_count)
 	var ideal_keyboard_height := white_width * WHITE_KEY_DEPTH_RATIO
 	var keyboard_height := minf(ideal_keyboard_height, body.size.y)
 	var leftover := body.size.y - keyboard_height
@@ -189,6 +186,7 @@ func _draw_keyboard() -> void:
 		_draw_key(key["rect"], key["note"], false)
 	for key in _black_keys:
 		_draw_key(key["rect"], key["note"], true)
+	_draw_active_markers()
 
 
 func _draw_key(rect: Rect2, note: String, is_black: bool) -> void:
@@ -208,6 +206,46 @@ func _draw_key(rect: Rect2, note: String, is_black: bool) -> void:
 			Color(0.35, 0.35, 0.38))
 
 
+func _draw_active_markers() -> void:
+	if current_note == "":
+		return
+	var label := _current_note_letter()
+	for key in _white_keys:
+		var note: String = key["note"]
+		if _note_matches(note) and not note.begins_with("C"):
+			_draw_key_marker(key["rect"], false, label)
+	for key in _black_keys:
+		if _note_matches(key["note"]):
+			_draw_key_marker(key["rect"], true, label)
+
+
+func _current_note_letter() -> String:
+	var parsed := _split_pitch(current_note)
+	if not parsed.is_empty():
+		return parsed["pitch"]
+	return normalize_note(current_note)
+
+
+func _draw_key_marker(rect: Rect2, is_black: bool, label: String) -> void:
+	var scale := 0.44 if is_black else 0.32
+	var radius := minf(rect.size.x, rect.size.y) * scale
+	var padding := 4.0
+	var center := Vector2(
+		rect.position.x + rect.size.x * 0.5,
+		rect.position.y + rect.size.y - radius - padding)
+	draw_circle(center, radius, marker_fill_color)
+	draw_arc(center, radius, 0.0, TAU, 24, key_border_color, 1.0)
+
+	var font := _bold_marker_font
+	var font_size := clampi(int(radius * (1.05 if is_black else 0.9)), 6, 14 if is_black else 12)
+	var ascent := font.get_ascent(font_size)
+	var descent := font.get_descent(font_size)
+	var baseline_y := center.y + (ascent - descent) * 0.5
+	draw_string(
+		font, Vector2(center.x - radius, baseline_y), label,
+		HORIZONTAL_ALIGNMENT_CENTER, radius * 2.0, font_size, marker_text_color)
+
+
 func _note_at(local_pos: Vector2) -> String:
 	_update_layout()
 	for key in _black_keys:
@@ -223,50 +261,12 @@ func _is_white_key(midi: int) -> bool:
 	return WHITE_PITCH_CLASSES.has(midi % 12)
 
 
-func _midi_to_name(midi: int) -> String:
-	var octave := int(midi / 12) - 1
-	return CHROMATIC[midi % 12] + str(octave)
-
-
-func _name_to_midi(note: String) -> int:
-	var parsed := _split_pitch(note)
-	if parsed.is_empty():
-		return -1
-	var pitch: String = parsed["pitch"]
-	var octave: int = parsed["octave"]
-	var pc := CHROMATIC.find(pitch)
-	if pc < 0:
-		return -1
-	return (octave + 1) * 12 + pc
-
-func _split_pitch(note: String) -> Dictionary:
-	var n := note.strip_edges()
-	if n.is_empty():
-		return {}
-	var octave_start := -1
-	for i in n.length():
-		if n[i].is_valid_int():
-			octave_start = i
-			break
-	if octave_start < 0:
-		return {}
-	var pitch_part := normalize_note(n.substr(0, octave_start))
-	if not CHROMATIC.has(pitch_part):
-		return {}
-	var octave_str := n.substr(octave_start)
-	if not octave_str.is_valid_int():
-		return {}
-	return {"pitch": pitch_part, "octave": int(octave_str)}
-
-
-func _normalize_pitch(note: String) -> String:
-	var parsed := _split_pitch(note)
-	if not parsed.is_empty():
-		return parsed["pitch"] + str(parsed["octave"])
-	var pitch := normalize_note(note)
-	if CHROMATIC.has(pitch):
-		return pitch
-	return ""
+func _white_key_count() -> int:
+	var count := 0
+	for midi in range(MIDI_LOW, MIDI_HIGH + 1):
+		if _is_white_key(midi):
+			count += 1
+	return count
 
 
 func _is_valid_piano_note(note: String) -> bool:
@@ -275,14 +275,3 @@ func _is_valid_piano_note(note: String) -> bool:
 		return CHROMATIC.has(normalize_note(note))
 	var midi := _name_to_midi(note)
 	return midi >= MIDI_LOW and midi <= MIDI_HIGH
-
-
-func _note_matches(key_note: String) -> bool:
-	if current_note == "":
-		return false
-	if key_note == current_note:
-		return true
-	var current_parsed := _split_pitch(current_note)
-	if current_parsed.is_empty():
-		return normalize_note(current_note) == normalize_note(_split_pitch(key_note).get("pitch", key_note))
-	return false
