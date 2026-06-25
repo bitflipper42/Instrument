@@ -51,21 +51,6 @@ func _ready() -> void:
 	_bold_marker_font.variation_embolden = 1.2
 
 
-func _input(event: InputEvent) -> void:
-	if not event is InputEventMouseButton:
-		return
-	var click := event as InputEventMouseButton
-	if not click.pressed or click.button_index != MOUSE_BUTTON_LEFT:
-		return
-	var tile_rect := Rect2(global_position, tile_size)
-	if not tile_rect.has_point(click.global_position):
-		return
-	var local_pos := click.global_position - global_position
-	var note := _note_at(local_pos)
-	if note != "":
-		play_note(note)
-
-
 func _draw() -> void:
 	_update_layout()
 	_draw_tile_chrome()
@@ -332,7 +317,7 @@ func _fret_center_x(fret: int) -> float:
 
 
 func _draw_active_cells() -> void:
-	if current_note == "":
+	if active_notes.is_empty():
 		return
 	var spacing := _string_spacing()
 	var open_radius := _marker_radius()

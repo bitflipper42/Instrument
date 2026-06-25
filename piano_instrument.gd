@@ -44,31 +44,8 @@ func _ready() -> void:
 	_bold_marker_font.variation_embolden = 1.2
 
 
-func _input(event: InputEvent) -> void:
-	if not event is InputEventMouseButton:
-		return
-	var click := event as InputEventMouseButton
-	if not click.pressed or click.button_index != MOUSE_BUTTON_LEFT:
-		return
-	var tile_rect := Rect2(global_position, tile_size)
-	if not tile_rect.has_point(click.global_position):
-		return
-	var local_pos := click.global_position - global_position
-	var note := _note_at(local_pos)
-	if note != "":
-		play_note(note)
-
-
-func emit_note(note: String) -> bool:
-	var n := _normalize_pitch(note)
-	if n == "" or not _is_valid_piano_note(n):
-		push_warning("PianoInstrument: invalid note '%s'" % note)
-		return false
-	return super.emit_note(note)
-
-
-func receive_note(note: String) -> bool:
-	return super.receive_note(note)
+func _can_play(note: String) -> bool:
+	return _is_valid_piano_note(note)
 
 
 func _draw() -> void:
@@ -209,28 +186,27 @@ func _draw_key(rect: Rect2, note: String, is_black: bool) -> void:
 
 
 func _draw_active_markers() -> void:
-	if current_note == "":
+	if active_notes.is_empty():
 		return
-	var pitch_label := _current_note_letter()
 	for key in _white_keys:
 		var note: String = key["note"]
 		if _note_matches(note) and not note.begins_with("C"):
-			_draw_key_marker(key["rect"], false, pitch_label, true)
+			_draw_key_marker(key["rect"], false, _key_letter(note), true)
 		elif _note_matches_octave_neighbors(note):
 			_draw_key_marker(key["rect"], false, note, false)
 	for key in _black_keys:
 		var note: String = key["note"]
 		if _note_matches(note):
-			_draw_key_marker(key["rect"], true, pitch_label, true)
+			_draw_key_marker(key["rect"], true, _key_letter(note), true)
 		elif _note_matches_octave_neighbors(note):
 			_draw_key_marker(key["rect"], true, note, false)
 
 
-func _current_note_letter() -> String:
-	var parsed := _split_pitch(current_note)
+func _key_letter(note: String) -> String:
+	var parsed := _split_pitch(note)
 	if not parsed.is_empty():
 		return parsed["pitch"]
-	return normalize_note(current_note)
+	return normalize_note(note)
 
 
 func _draw_key_marker(rect: Rect2, is_black: bool, label: String, is_primary: bool) -> void:
