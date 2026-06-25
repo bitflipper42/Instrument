@@ -1,0 +1,6 @@
+[gd_scene format=3 uid="uid://dn4048yr4mvt5"]
+
+[ext_resource type="Script" path="res://basic_instrument.gd" id="1_basic"]
+
+[node name="BasicInstrument" type="Node2D"]
+script = ExtResource("1_basic")

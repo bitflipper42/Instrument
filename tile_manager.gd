@@ -7,6 +7,8 @@ extends Node2D
 
 const InstTileScene := preload("res://inst_tile.tscn")
 
+## The tile scene to instantiate for new tiles. Defaults to BasicInstrument.
+@export var tile_scene: PackedScene = preload("res://basic_instrument.tscn")
 ## How many tiles to create on startup. Defaults to two horizontal tiles.
 @export var default_tile_count: int = 2
 ## Gap between adjacent tiles, in pixels.
@@ -32,7 +34,8 @@ func _ready() -> void:
 
 ## Creates a new tile, appends it to the row and re-arranges. Returns the tile.
 func add_tile(title: String = "") -> InstTile:
-	var tile := InstTileScene.instantiate() as InstTile
+	var scene := tile_scene if tile_scene != null else InstTileScene
+	var tile := scene.instantiate() as InstTile
 	tile.tile_color = _PALETTE[tiles.size() % _PALETTE.size()]
 	tile.title = title if title != "" else "Tile %d" % (tiles.size() + 1)
 	add_child(tile)
