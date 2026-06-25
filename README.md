@@ -1,6 +1,6 @@
 # Instrument
 
-A Godot 4.6 2D project that displays interactive musical instruments as resizable tiles. Instruments can emit and receive note names, and are wired together so playing one highlights matching positions on another.
+A Godot 4.6 2D project that displays interactive musical instruments as resizable tiles. Instruments can emit and receive note names (pitch or pitch+octave), and are wired together so playing one highlights matching positions on another.
 
 This document is written for humans and for AI assistants continuing work on the codebase.
 
@@ -53,8 +53,8 @@ InstTile
 | Class | File | Role |
 |-------|------|------|
 | `InstTile` | `inst_tile.gd` | Base tile: rect layout, border, title, `set_rect()` |
-| `BasicInstrument` | `basic_instrument.gd` | Note I/O: signals, validation, `connect_to()` |
-| `PianoInstrument` | `piano_instrument.gd` | 88-key piano keyboard |
+| `BasicInstrument` | `basic_instrument.gd` | Note I/O: octave parsing, matching, `connect_to()` / `connect_bidirectional()` |
+| `PianoInstrument` | `piano_instrument.gd` | 64-key piano keyboard (A1–C7) |
 | `GuitarInstrument` | `guitar_instrument.gd` | 12-fret horizontal guitar neck |
 | `TileManager` | `tile_manager.gd` | Spawns, lays out, and rearranges tiles |
 
@@ -65,7 +65,7 @@ Each concrete instrument has a matching `.tscn` scene file with the script attac
 ```
 Instrument/
 ├── project.godot          # Project config (name, window, main scene)
-├── main.tscn / main.gd    # Entry point; wires piano → guitar
+├── main.tscn / main.gd    # Entry point; bidirectional piano ↔ guitar wiring
 ├── tile_manager.gd        # Tile layout manager (no .tscn; script on node in main.tscn)
 ├── inst_tile.gd/.tscn     # Base tile
 ├── basic_instrument.gd/.tscn
@@ -105,26 +105,40 @@ Flats are normalized to sharps via `FLAT_ALIASES` (e.g. `Bb` → `A#`).
 signal note_emitted(note: String)
 signal note_received(note: String)
 
-func emit_note(note: String) -> bool      # Validate, store, redraw, emit signal
-func receive_note(note: String) -> bool    # Validate, store, redraw, emit signal
-func connect_to(other: BasicInstrument)    # note_emitted → other.receive_note
+func play_note(note: String) -> bool           # User click → emit_note
+func emit_note(note: String) -> bool           # Validate, store, redraw, emit signal
+func receive_note(note: String) -> bool        # Validate, store, redraw; does NOT re-emit
+func connect_to(other: BasicInstrument)        # note_emitted → other.receive_note
+func connect_bidirectional(other: BasicInstrument)  # Two-way connect_to; no feedback loop
 func normalize_note(note: String) -> String
-func is_valid_note(note: String) -> bool
+func is_valid_note(note: String) -> bool       # Pitch or pitch+octave
 ```
 
 `current_note` holds the most recent note (emit or receive).
 
-### Note format conventions
+`receive_note` updates state and emits `note_received` only — it never calls `note_emitted`, so bidirectional wiring does not loop.
 
-| Instrument | Format | Example |
-|------------|--------|---------|
-| `BasicInstrument` | Pitch only | `"C"`, `"F#"` |
-| `PianoInstrument` | Pitch + octave | `"C4"`, `"A0"` |
-| `GuitarInstrument` | Pitch + octave | `"E2"`, `"G3"` |
+### Pitch and octave parsing
 
-Piano and guitar **override** `emit_note` / `receive_note` to accept octave-qualified names. They also accept plain chromatic names (no octave); matching then highlights all keys/strings with that pitch class.
+The base class accepts both pitch-only and pitch+octave names via `_normalize_pitch()`:
 
-**Cross-instrument caveat**: Piano emits `"C4"` but `BasicInstrument.receive_note` only accepts chromatic names without octave. Piano→guitar works because `GuitarInstrument` overrides `receive_note`. Piano→plain `BasicInstrument` would fail on octave-qualified input.
+| Input | Stored as | Example |
+|-------|-----------|---------|
+| Pitch only | Chromatic name | `"C"`, `"F#"` |
+| Pitch + octave | Pitch + digit(s) | `"C4"`, `"A0"` |
+
+Helpers (protected, used by subclasses): `_split_pitch()`, `_name_to_midi()`, `_midi_to_name()`, `_note_matches()`.
+
+### Matching (`_note_matches`)
+
+| `current_note` | Key/cell note | Matches when |
+|----------------|---------------|--------------|
+| `"C4"` | `"C4"` | Exact string |
+| `"C4"` | `"C5"` | Same MIDI pitch |
+| `"C"` | `"C4"`, `"C5"`, … | Same pitch class |
+| `"C4"` | `"C"` (pitch only) | No — octave required on key side |
+
+Piano and guitar call `_note_matches()` for highlights. `PianoInstrument` additionally constrains playable range in `emit_note` via `_is_valid_piano_note()`.
 
 ## Current runtime wiring (`main.gd`)
 
@@ -133,16 +147,16 @@ On `_ready()`:
 1. `TileManager` has already spawned 2 piano tiles.
 2. `main.gd` renames tile 0 to `"Piano"`.
 3. Removes tile 1 and replaces it with `GuitarInstrument` via `add_tile_from_scene`.
-4. Connects piano `note_emitted` → guitar `receive_note`.
+4. Calls `piano.connect_bidirectional(guitar)`.
 
-Result: click a piano key → guitar highlights matching fret/open position.
+Result: click either instrument → the other highlights the matching key/fret/open position.
 
 ## PianoInstrument
 
-- **Range**: 88 keys, MIDI 21–108 (`A0`–`C8`).
-- **Layout**: White keys span full tile width (52 whites). Key **depth** uses ratio `WHITE_KEY_DEPTH_RATIO = 7.0` (realistic width:height). Extra vertical space becomes top/bottom **stretchers** (wood frame).
-- **Input**: Left-click key → `emit_note("C4")` etc.
-- **Highlight**: Exact octave match, or all keys matching pitch class if no octave in `current_note`.
+- **Range**: 64 keys, MIDI 33–96 (`A1`–`C7`) — full 88-key span with one octave removed from each end.
+- **Layout**: White keys span full tile width. Key **depth** uses ratio `WHITE_KEY_DEPTH_RATIO = 7.0` (realistic width:height). Extra vertical space becomes top/bottom **stretchers** (wood frame).
+- **Input**: Left-click key → `play_note("C4")` etc.
+- **Highlight**: Active keys use `active_key_color` via `_note_matches()`. Non-`C` white keys and black keys also get a **circle marker** with the pitch letter (`_draw_active_markers()`). `C` white keys show a small octave label at the bottom of the key (e.g. `C4`).
 - **Drawing**: Overrides `_draw()` completely (does not use `BasicInstrument`’s large centered note text).
 
 ## GuitarInstrument
@@ -162,7 +176,7 @@ Instruments use the same patterns:
 
 1. **`_update_layout()`** — compute geometry from `tile_size` into cached rects/arrays.
 2. **`_draw()`** — call layout, draw chrome, draw instrument.
-3. **`_input(event)`** — on left click inside tile global rect, map to local pos, hit-test, `emit_note()`.
+3. **`_input(event)`** — on left click inside tile global rect, map to local pos, hit-test, `play_note()`.
 
 Hit-testing uses precomputed cell dicts: `{ "note", "rect", "fret", "string", ... }`.
 
@@ -178,7 +192,7 @@ Hit-testing uses precomputed cell dicts: `{ "note", "rect", "fret", "string", ..
 1. Create `my_instrument.gd` extending `BasicInstrument` (or `InstTile` if no note I/O).
 2. Add `class_name MyInstrument` and a `.tscn` with script attached.
 3. Override `_draw()` for custom visuals; override `emit_note`/`receive_note` if using octaves or custom validation.
-4. Handle input in `_input()` or `_unhandled_input()`.
+4. Handle input in `_input()` or `_unhandled_input()`; call `play_note()` on click.
 5. Register in scene: `tile_manager.add_tile_from_scene(preload("res://my_instrument.tscn"), "Title")`.
 6. Godot will generate `.uid` files and `.godot/` cache on import (gitignored).
 
@@ -191,15 +205,15 @@ Do **not** modify `BasicInstrument` for one-off behavior — derive a new class 
 3. `TileManager` horizontal layout
 4. `BasicInstrument` note emit/receive
 5. `PianoInstrument` keyboard
-6. Piano upgraded to 88 keys + stretchers
+6. Piano upgraded to full keyboard span + stretchers (later trimmed to 64 keys, A1–C7)
 7. `GuitarInstrument` + piano/guitar mixed layout
 8. Guitar marker UX (circles, open-string-on-receive-only)
+9. Octave-aware note parsing, bidirectional wiring, piano circle markers
 
 ## Out of scope / not yet implemented
 
 - Audio playback (no `AudioStreamPlayer` yet)
 - MIDI input
-- Octave-aware matching in `BasicInstrument` base class
 - Guitar body outline (removed per design)
 - Persistence, menus, or multiple scenes
 
