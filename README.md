@@ -161,13 +161,11 @@ Result: click either instrument → the other highlights the matching key/fret/o
 
 ## GuitarInstrument
 
-- **Neck**: Horizontal, left-to-right. Nut on the left (double vertical line), 12 frets as vertical lines with proper spacing (`1 - 2^(-n/12)` scaled so fret 12 is at the right edge).
-- **Strings**: 6 strings horizontal (standard tuning E A D G B E, low to high in array index 0–5).
-- **Open-string zone**: Narrow strip left of nut, width = `2 * marker_radius + padding`. Clickable for open notes.
-- **Fret markers**: Dots at frets 3, 5, 7, 9 (single), 12 (double).
-- **Note markers**: Circles with bold centered text (`FontVariation.variation_embolden = 1.2`). Label format: single line e.g. `E2`.
-- **Open-string marker visibility**: Hidden by default. Shown only when `_show_open_markers` is true (set in `receive_note`, cleared in `emit_note`). Only matching open string(s) are drawn.
-- **Fretted highlight**: Active fretted cells show circle markers via `_draw_active_cells()`.
+- **Neck**: Left → right (open zone and nut on the left, frets and bridge on the right). Tab-style view: horizontal strings, vertical frets.
+- **Strings**: Standard tuning. Top to bottom on screen: high E → B → G → D → A → low E (array index 5 → 0). Line width tapers from bass to treble (`STRING_WIDTHS`).
+- **Open-string zone**: Clickable strip left of the nut. Open-string note labels (e.g. `E2`, `A2`) centered above each string; active open notes show circle markers in the zone.
+- **Fret markers**: Dots at frets 3, 5, 7, 9 (single, numbered), 12 (double dots with centered `12` label).
+- **Note markers**: Circle markers with bold note text on any matching cell (open or fretted), whether clicked locally or received from another instrument.
 - **Tuning**: `OPEN_STRING_NOTES` + `OPEN_STRING_OCTAVES` → E2, A2, D3, G3, B3, E4 at fret 0.
 
 ## Drawing and input patterns
@@ -209,6 +207,7 @@ Do **not** modify `BasicInstrument` for one-off behavior — derive a new class 
 7. `GuitarInstrument` + piano/guitar mixed layout
 8. Guitar marker UX (circles, open-string-on-receive-only)
 9. Octave-aware note parsing, bidirectional wiring, piano circle markers
+10. Guitar visual polish (nut, bridge, string thickness, labels) and unified open-string markers
 
 ## Out of scope / not yet implemented
 
