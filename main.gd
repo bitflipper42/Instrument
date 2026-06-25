@@ -1,6 +1,7 @@
 extends Node2D
 
 const GuitarScene := preload("res://guitar_instrument.tscn")
+const ViolaScene := preload("res://viola_instrument.tscn")
 
 @onready var tile_manager: TileManager = $TileManager
 
@@ -17,6 +18,11 @@ func _ready() -> void:
 	if tiles.size() >= 2:
 		tile_manager.remove_tile(1)
 	var guitar := tile_manager.add_tile_from_scene(GuitarScene, "Guitar") as BasicInstrument
+	var viola := tile_manager.add_tile_from_scene(ViolaScene, "Viola") as BasicInstrument
 
 	if piano and guitar:
 		piano.connect_bidirectional(guitar)
+	if piano and viola:
+		piano.connect_bidirectional(viola)
+	if guitar and viola:
+		guitar.connect_bidirectional(viola)
