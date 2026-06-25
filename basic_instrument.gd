@@ -18,6 +18,9 @@ const FLAT_ALIASES: Dictionary = {
 	"Db": "C#", "Eb": "D#", "Gb": "F#", "Ab": "G#", "Bb": "A#",
 }
 
+## How many octaves above/below the selected note get secondary markers.
+@export var octave_neighbor_radius: int = 2
+
 ## The most recent note this instrument received or emitted.
 var current_note: String = ""
 
@@ -142,6 +145,21 @@ func _note_matches(key_note: String) -> bool:
 	if key_parsed.is_empty():
 		return false
 	return _name_to_midi(current_note) == _name_to_midi(key_note)
+
+
+## True when `key_note` is the same pitch class within ±`octave_neighbor_radius`
+## octaves of `current_note`, but not the primary match from `_note_matches`.
+func _note_matches_octave_neighbors(key_note: String) -> bool:
+	if current_note == "" or octave_neighbor_radius <= 0:
+		return false
+	if _note_matches(key_note):
+		return false
+	var current_midi := _name_to_midi(current_note)
+	var key_midi := _name_to_midi(key_note)
+	if current_midi < 0 or key_midi < 0:
+		return false
+	var diff := absi(key_midi - current_midi)
+	return diff % 12 == 0 and diff <= octave_neighbor_radius * 12
 
 
 func _draw() -> void:

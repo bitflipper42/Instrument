@@ -14,7 +14,9 @@ const BLACK_OFFSET_BY_PC: PackedInt32Array = [1, 0, 1, 0, 0, 1, 0, 1, 0, 1, 0, 0
 @export var key_border_color: Color = Color(0.55, 0.55, 0.58)
 @export var active_key_color: Color = Color(0.22, 0.50, 0.78)
 @export var marker_fill_color: Color = Color(0.92, 0.90, 0.84)
+@export var neighbor_marker_fill_color: Color = Color(0.82, 0.80, 0.74)
 @export var marker_text_color: Color = Color(0.22, 0.18, 0.14)
+@export var neighbor_marker_text_color: Color = Color(0.45, 0.42, 0.38)
 @export var stretcher_color: Color = Color(0.30, 0.22, 0.15)
 @export var stretcher_border_color: Color = Color(0.18, 0.12, 0.08)
 
@@ -209,14 +211,19 @@ func _draw_key(rect: Rect2, note: String, is_black: bool) -> void:
 func _draw_active_markers() -> void:
 	if current_note == "":
 		return
-	var label := _current_note_letter()
+	var pitch_label := _current_note_letter()
 	for key in _white_keys:
 		var note: String = key["note"]
 		if _note_matches(note) and not note.begins_with("C"):
-			_draw_key_marker(key["rect"], false, label)
+			_draw_key_marker(key["rect"], false, pitch_label, true)
+		elif _note_matches_octave_neighbors(note):
+			_draw_key_marker(key["rect"], false, note, false)
 	for key in _black_keys:
-		if _note_matches(key["note"]):
-			_draw_key_marker(key["rect"], true, label)
+		var note: String = key["note"]
+		if _note_matches(note):
+			_draw_key_marker(key["rect"], true, pitch_label, true)
+		elif _note_matches_octave_neighbors(note):
+			_draw_key_marker(key["rect"], true, note, false)
 
 
 func _current_note_letter() -> String:
@@ -226,14 +233,16 @@ func _current_note_letter() -> String:
 	return normalize_note(current_note)
 
 
-func _draw_key_marker(rect: Rect2, is_black: bool, label: String) -> void:
+func _draw_key_marker(rect: Rect2, is_black: bool, label: String, is_primary: bool) -> void:
 	var scale := 0.44 if is_black else 0.32
 	var radius := minf(rect.size.x, rect.size.y) * scale
 	var padding := 4.0
 	var center := Vector2(
 		rect.position.x + rect.size.x * 0.5,
 		rect.position.y + rect.size.y - radius - padding)
-	draw_circle(center, radius, marker_fill_color)
+	var fill := marker_fill_color if is_primary else neighbor_marker_fill_color
+	var text_color := marker_text_color if is_primary else neighbor_marker_text_color
+	draw_circle(center, radius, fill)
 	draw_arc(center, radius, 0.0, TAU, 24, key_border_color, 1.0)
 
 	var font := _bold_marker_font
@@ -243,7 +252,7 @@ func _draw_key_marker(rect: Rect2, is_black: bool, label: String) -> void:
 	var baseline_y := center.y + (ascent - descent) * 0.5
 	draw_string(
 		font, Vector2(center.x - radius, baseline_y), label,
-		HORIZONTAL_ALIGNMENT_CENTER, radius * 2.0, font_size, marker_text_color)
+		HORIZONTAL_ALIGNMENT_CENTER, radius * 2.0, font_size, text_color)
 
 
 func _note_at(local_pos: Vector2) -> String:

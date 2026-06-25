@@ -55,7 +55,7 @@ InstTile
 | `InstTile` | `inst_tile.gd` | Base tile: rect layout, border, title, `set_rect()` |
 | `BasicInstrument` | `basic_instrument.gd` | Note I/O: octave parsing, matching, `connect_to()` / `connect_bidirectional()` |
 | `PianoInstrument` | `piano_instrument.gd` | 64-key piano keyboard (A1–C7) |
-| `GuitarInstrument` | `guitar_instrument.gd` | 12-fret horizontal guitar neck |
+| `GuitarInstrument` | `guitar_instrument.gd` | 13-fret horizontal guitar neck (fret 13 extension zone) |
 | `TileManager` | `tile_manager.gd` | Spawns, lays out, and rearranges tiles |
 
 Each concrete instrument has a matching `.tscn` scene file with the script attached.
@@ -127,7 +127,7 @@ The base class accepts both pitch-only and pitch+octave names via `_normalize_pi
 | Pitch only | Chromatic name | `"C"`, `"F#"` |
 | Pitch + octave | Pitch + digit(s) | `"C4"`, `"A0"` |
 
-Helpers (protected, used by subclasses): `_split_pitch()`, `_name_to_midi()`, `_midi_to_name()`, `_note_matches()`.
+Helpers (protected, used by subclasses): `_split_pitch()`, `_name_to_midi()`, `_midi_to_name()`, `_note_matches()`, `_note_matches_octave_neighbors()`.
 
 ### Matching (`_note_matches`)
 
@@ -138,7 +138,16 @@ Helpers (protected, used by subclasses): `_split_pitch()`, `_name_to_midi()`, `_
 | `"C"` | `"C4"`, `"C5"`, … | Same pitch class |
 | `"C4"` | `"C"` (pitch only) | No — octave required on key side |
 
-Piano and guitar call `_note_matches()` for highlights. `PianoInstrument` additionally constrains playable range in `emit_note` via `_is_valid_piano_note()`.
+Piano and guitar call `_note_matches()` for the **primary** highlight (key fill on piano, active marker color on guitar). `PianoInstrument` additionally constrains playable range in `emit_note` via `_is_valid_piano_note()`.
+
+### Octave neighbor markers (`_note_matches_octave_neighbors`)
+
+When `current_note` includes an octave (e.g. `"C4"`), instruments also mark the same pitch class at ±1 and ±2 octaves — e.g. selecting `C4` shows secondary markers on `C2`, `C3`, `C5`, and `C6` wherever those keys/cells exist on the instrument.
+
+- **Logic** (in `BasicInstrument`): same pitch class, MIDI distance ≤ `octave_neighbor_radius * 12` semitones, and not already matched by `_note_matches()`.
+- **Knob**: `@export var octave_neighbor_radius: int = 2` on `BasicInstrument` (set to `0` to disable).
+- **Pitch-only notes** (`"C"` without octave): neighbor markers are skipped (no reference MIDI); `_note_matches()` still highlights all keys/cells of that pitch class.
+- **Drawing** (per instrument): piano uses `neighbor_marker_fill_color` / `neighbor_marker_text_color` and labels neighbors with the full note name (`C2`, `C5`, …); guitar uses `active_marker_color` for primary and `marker_color` for neighbors via `_draw_note_marker(..., is_primary)`.
 
 ## Current runtime wiring (`main.gd`)
 
@@ -156,17 +165,18 @@ Result: click either instrument → the other highlights the matching key/fret/o
 - **Range**: 64 keys, MIDI 33–96 (`A1`–`C7`) — full 88-key span with one octave removed from each end.
 - **Layout**: White keys span full tile width. Key **depth** uses ratio `WHITE_KEY_DEPTH_RATIO = 7.0` (realistic width:height). Extra vertical space becomes top/bottom **stretchers** (wood frame).
 - **Input**: Left-click key → `play_note("C4")` etc.
-- **Highlight**: Active keys use `active_key_color` via `_note_matches()`. Non-`C` white keys and black keys also get a **circle marker** with the pitch letter (`_draw_active_markers()`). `C` white keys show a small octave label at the bottom of the key (e.g. `C4`).
+- **Highlight**: Active keys use `active_key_color` via `_note_matches()`. Non-`C` white keys and black keys also get a **circle marker** with the pitch letter (`_draw_active_markers()`). `C` white keys show a small octave label at the bottom of the key (e.g. `C4`). **Octave neighbors** (±2 octaves) get softer circle markers labeled with the full note name.
 - **Drawing**: Overrides `_draw()` completely (does not use `BasicInstrument`’s large centered note text).
 
 ## GuitarInstrument
 
 - **Neck**: Left → right (open zone and nut on the left, frets and bridge on the right). Tab-style view: horizontal strings, vertical frets. Ivory **nut** block and wooden **bridge** saddle at each end; frets use `2^(-n/12)` spacing.
 - **Strings**: Standard tuning. Top to bottom on screen: high E → B → G → D → A → low E (array index 5 → 0). Line width tapers from bass to treble (`STRING_WIDTHS`).
-- **Open-string zone**: Clickable strip left of the nut. Open-string note labels (e.g. `E2`, `A2`) centered above each string; active open notes show circle markers in the zone.
+- **Open-string zone**: Clickable strip left of the nut, same width as the **fret 13 zone** on the right. Open-string note labels (e.g. `E2`, `A2`) centered above each string; active open notes show circle markers in the zone.
+- **Fret 13 zone**: Fixed-width strip (matches open zone) between fret 12 and the bridge. Note labels above each string (e.g. `F2`, `F3`) via shared `_draw_zone_note_labels()`; clickable like other frets.
 - **Fret markers**: Dots at frets 3, 5, 7, 9 (single, numbered), 12 (double dots with centered `12` label). Fret numbers use subtle off-white `fret_marker_text_color`.
 - **Hit-testing**: Each fretted cell spans from the previous wire (or nut) to the current fret wire — e.g. fret 1 is nut → fret 1, not fret 1 → fret 2.
-- **Note markers**: Circle markers with bold note text on any matching cell (open or fretted), whether clicked locally or received from another instrument.
+- **Note markers**: Circle markers with bold note text on any matching cell (open or fretted), whether clicked locally or received from another instrument. Primary match uses `active_marker_color`; **octave neighbors** (±2) use the default `marker_color`.
 - **Tuning**: `OPEN_STRING_NOTES` + `OPEN_STRING_OCTAVES` → E2, A2, D3, G3, B3, E4 at fret 0.
 
 ## Drawing and input patterns
@@ -206,9 +216,11 @@ Do **not** modify `BasicInstrument` for one-off behavior — derive a new class 
 5. `PianoInstrument` keyboard
 6. Piano upgraded to full keyboard span + stretchers (later trimmed to 64 keys, A1–C7)
 7. `GuitarInstrument` + piano/guitar mixed layout
-8. Guitar marker UX (circles, open-string-on-receive-only)
+8. Guitar marker UX (circles on fretted cells; open-string markers unified with `_draw_active_cells`)
 9. Octave-aware note parsing, bidirectional wiring, piano circle markers
-10. Guitar visual polish (nut, bridge, string thickness, labels) and unified open-string markers
+10. Guitar visual polish (nut, bridge, string thickness, labels, high-E-on-top layout)
+11. Guitar fret hit-test fix, fret numbers on position dots, subtle fret label color
+12. Octave neighbor markers (±2 octaves) via `_note_matches_octave_neighbors()`; guitar fret 13 extension zone
 
 ## Out of scope / not yet implemented
 
