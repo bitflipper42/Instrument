@@ -161,10 +161,11 @@ Result: click either instrument → the other highlights the matching key/fret/o
 
 ## GuitarInstrument
 
-- **Neck**: Left → right (open zone and nut on the left, frets and bridge on the right). Tab-style view: horizontal strings, vertical frets.
+- **Neck**: Left → right (open zone and nut on the left, frets and bridge on the right). Tab-style view: horizontal strings, vertical frets. Ivory **nut** block and wooden **bridge** saddle at each end; frets use `2^(-n/12)` spacing.
 - **Strings**: Standard tuning. Top to bottom on screen: high E → B → G → D → A → low E (array index 5 → 0). Line width tapers from bass to treble (`STRING_WIDTHS`).
 - **Open-string zone**: Clickable strip left of the nut. Open-string note labels (e.g. `E2`, `A2`) centered above each string; active open notes show circle markers in the zone.
-- **Fret markers**: Dots at frets 3, 5, 7, 9 (single, numbered), 12 (double dots with centered `12` label).
+- **Fret markers**: Dots at frets 3, 5, 7, 9 (single, numbered), 12 (double dots with centered `12` label). Fret numbers use subtle off-white `fret_marker_text_color`.
+- **Hit-testing**: Each fretted cell spans from the previous wire (or nut) to the current fret wire — e.g. fret 1 is nut → fret 1, not fret 1 → fret 2.
 - **Note markers**: Circle markers with bold note text on any matching cell (open or fretted), whether clicked locally or received from another instrument.
 - **Tuning**: `OPEN_STRING_NOTES` + `OPEN_STRING_OCTAVES` → E2, A2, D3, G3, B3, E4 at fret 0.
 
