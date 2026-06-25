@@ -15,23 +15,30 @@ const DOT_FRETS: PackedInt32Array = [3, 5, 7, 9]
 @export var fret_color: Color = Color(0.78, 0.78, 0.80)
 @export var string_color: Color = Color(0.70, 0.70, 0.72)
 @export var marker_color: Color = Color(0.92, 0.90, 0.84)
+@export var marker_text_color: Color = Color(0.22, 0.18, 0.14)
+@export var active_marker_color: Color = Color(0.35, 0.70, 0.95)
 @export var edge_line_color: Color = Color(0.88, 0.86, 0.82)
 
 const TITLE_HEIGHT := 28.0
 const BOARD_PADDING := Vector2(10.0, 8.0)
-const OPEN_ZONE_WIDTH_RATIO := 0.08
+const MARKER_ZONE_PADDING := 6.0
 
 var _board_rect := Rect2()
 var _open_zone_rect := Rect2()
 var _fret_x: Array[float] = []
 var _string_y: Array[float] = []
 var _fret_cells: Array[Dictionary] = []
+var _bold_marker_font: FontVariation
+var _show_open_markers := false
 
 
 func _ready() -> void:
 	super._ready()
 	if title == "Instrument":
 		title = "Guitar"
+	_bold_marker_font = FontVariation.new()
+	_bold_marker_font.base_font = ThemeDB.fallback_font
+	_bold_marker_font.variation_embolden = 1.2
 
 
 func _input(event: InputEvent) -> void:
@@ -55,6 +62,7 @@ func emit_note(note: String) -> bool:
 		push_warning("GuitarInstrument: invalid note '%s'" % note)
 		return false
 	current_note = n
+	_show_open_markers = false
 	queue_redraw()
 	note_emitted.emit(n)
 	return true
@@ -66,6 +74,7 @@ func receive_note(note: String) -> bool:
 		push_warning("GuitarInstrument: invalid note '%s'" % note)
 		return false
 	current_note = n
+	_show_open_markers = true
 	queue_redraw()
 	note_received.emit(n)
 	return true
@@ -112,7 +121,14 @@ func _update_layout() -> void:
 	var neck_top := body.position.y + (body.size.y - neck_height) * 0.5
 	_board_rect = Rect2(body.position.x, neck_top, body.size.x, neck_height)
 
-	var open_width := maxf(_board_rect.size.x * OPEN_ZONE_WIDTH_RATIO, 36.0)
+	for i in STRING_COUNT:
+		var y := lerpf(
+			_board_rect.position.y + _board_rect.size.y * 0.10,
+			_board_rect.position.y + _board_rect.size.y * 0.90,
+			float(i) / float(STRING_COUNT - 1))
+		_string_y.append(y)
+
+	var open_width := _open_zone_width()
 	_open_zone_rect = Rect2(_board_rect.position.x, _board_rect.position.y, open_width, _board_rect.size.y)
 
 	var nut_x := _board_rect.position.x + open_width
@@ -123,13 +139,6 @@ func _update_layout() -> void:
 	for fret in range(1, FRET_COUNT + 1):
 		var t := (1.0 - pow(2.0, -float(fret) / 12.0)) / fret_span
 		_fret_x.append(nut_x + span * t)
-
-	for i in STRING_COUNT:
-		var y := lerpf(
-			_board_rect.position.y + _board_rect.size.y * 0.10,
-			_board_rect.position.y + _board_rect.size.y * 0.90,
-			float(i) / float(STRING_COUNT - 1))
-		_string_y.append(y)
 
 	var string_gap := _string_spacing()
 	for string_idx in STRING_COUNT:
@@ -161,6 +170,14 @@ func _string_spacing() -> float:
 	if _string_y.size() < 2:
 		return _board_rect.size.y
 	return (_string_y[1] - _string_y[0])
+
+
+func _marker_radius() -> float:
+	return _string_spacing() * 0.42
+
+
+func _open_zone_width() -> float:
+	return _marker_radius() * 2.0 + MARKER_ZONE_PADDING
 
 
 func _draw_fretboard() -> void:
@@ -195,28 +212,43 @@ func _draw_fretboard() -> void:
 			Vector2(_board_rect.position.x + _board_rect.size.x, y),
 			string_color, 1.0)
 
-	_draw_open_string_labels()
+	_draw_open_string_markers()
 	_draw_fret_markers()
 	_draw_active_cells()
 
 
-func _draw_open_string_labels() -> void:
-	if _open_zone_rect.size.x <= 0.0:
+func _draw_open_string_markers() -> void:
+	if not _show_open_markers or _open_zone_rect.size.x <= 0.0:
 		return
-	var font := ThemeDB.fallback_font
-	var font_size := clampi(int(_string_spacing() * 0.55), 8, 14)
+	var radius := _marker_radius()
 	for string_idx in STRING_COUNT:
 		var note := _note_for(string_idx, 0)
-		var cell_top := _string_y[string_idx] - _string_spacing() * 0.5
-		var text_y := cell_top + _string_spacing() * 0.5 + font_size * 0.35
-		draw_string(
-			font,
-			Vector2(_open_zone_rect.position.x + 4.0, text_y),
-			note,
-			HORIZONTAL_ALIGNMENT_LEFT,
-			_open_zone_rect.size.x - 8.0,
-			font_size,
-			edge_line_color)
+		if not _note_matches(note):
+			continue
+		var center := Vector2(
+			_open_zone_rect.position.x + _open_zone_rect.size.x * 0.5,
+			_string_y[string_idx])
+		_draw_note_marker(center, radius, note, true)
+
+
+func _draw_note_marker(center: Vector2, radius: float, note: String, highlighted: bool = false) -> void:
+	var fill := active_marker_color if highlighted else marker_color
+	draw_circle(center, radius, fill)
+	draw_arc(center, radius, 0.0, TAU, 32, fret_color, 1.0)
+
+	var label := _normalize_pitch(note)
+	if label == "":
+		label = normalize_note(note)
+
+	var font := _bold_marker_font
+	var font_size := clampi(int(radius * 0.85), 7, 13)
+	var ascent := font.get_ascent(font_size)
+	var descent := font.get_descent(font_size)
+	var baseline_y := center.y + (ascent - descent) * 0.5
+	var text_width := radius * 2.0
+	draw_string(
+		font, Vector2(center.x - radius, baseline_y), label,
+		HORIZONTAL_ALIGNMENT_CENTER, text_width, font_size, marker_text_color)
 
 
 func _draw_fret_markers() -> void:
@@ -240,9 +272,16 @@ func _fret_center_x(fret: int) -> float:
 
 
 func _draw_active_cells() -> void:
+	var spacing := _string_spacing()
+	var radius := minf(spacing * 0.38, _board_rect.size.y * 0.055)
 	for cell in _fret_cells:
-		if _note_matches(cell["note"]):
-			draw_rect(cell["rect"], border_color.lightened(0.2), true)
+		if cell["fret"] == 0:
+			continue
+		if not _note_matches(cell["note"]):
+			continue
+		var rect := cell["rect"] as Rect2
+		var center := rect.position + rect.size * 0.5
+		_draw_note_marker(center, radius, cell["note"], true)
 
 
 func _note_at(local_pos: Vector2) -> String:
