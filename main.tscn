@@ -1,6 +1,10 @@
-[gd_scene load_steps=2 format=3 uid="uid://b0instrumentmain0"]
+[gd_scene load_steps=3 format=3 uid="uid://b0instrumentmain0"]
 
 [ext_resource type="Script" path="res://main.gd" id="1_main"]
+[ext_resource type="Script" path="res://tile_manager.gd" id="2_tilemgr"]
 
 [node name="Main" type="Node2D"]
 script = ExtResource("1_main")
+
+[node name="TileManager" type="Node2D" parent="."]
+script = ExtResource("2_tilemgr")
