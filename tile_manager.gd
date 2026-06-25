@@ -34,7 +34,11 @@ func _ready() -> void:
 
 ## Creates a new tile, appends it to the row and re-arranges. Returns the tile.
 func add_tile(title: String = "") -> InstTile:
-	var scene := tile_scene if tile_scene != null else InstTileScene
+	return add_tile_from_scene(tile_scene if tile_scene != null else InstTileScene, title)
+
+
+## Creates a tile from a specific scene. Returns the tile.
+func add_tile_from_scene(scene: PackedScene, title: String = "") -> InstTile:
 	var tile := scene.instantiate() as InstTile
 	tile.tile_color = _PALETTE[tiles.size() % _PALETTE.size()]
 	tile.title = title if title != "" else "Tile %d" % (tiles.size() + 1)
