@@ -8,7 +8,7 @@ extends Node2D
 const InstTileScene := preload("res://inst_tile.tscn")
 
 ## The tile scene to instantiate for new tiles. Defaults to BasicInstrument.
-@export var tile_scene: PackedScene = preload("res://basic_instrument.tscn")
+@export var tile_scene: PackedScene = preload("res://piano_instrument.tscn")
 ## How many tiles to create on startup. Defaults to two horizontal tiles.
 @export var default_tile_count: int = 2
 ## Gap between adjacent tiles, in pixels.

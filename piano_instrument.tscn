@@ -1,0 +1,6 @@
+[gd_scene format=3 uid="uid://bnbuti1ir0iy7"]
+
+[ext_resource type="Script" path="res://piano_instrument.gd" id="1_piano"]
+
+[node name="PianoInstrument" type="Node2D"]
+script = ExtResource("1_piano")
