@@ -1,0 +1,6 @@
+[gd_scene format=3 uid="uid://d30grnc48106f"]
+
+[ext_resource type="Script" path="res://inst_tile.gd" id="1_insttile"]
+
+[node name="InstTile" type="Node2D"]
+script = ExtResource("1_insttile")
