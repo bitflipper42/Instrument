@@ -4,6 +4,7 @@ const PianoScene := preload("res://piano_instrument.tscn")
 const GuitarScene := preload("res://guitar_instrument.tscn")
 const ViolaScene := preload("res://viola_instrument.tscn")
 const SourceScene := preload("res://source_instrument.tscn")
+const SequenceScene := preload("res://sequence_instrument.tscn")
 
 @onready var tile_manager: TileManager = $TileManager
 
@@ -14,8 +15,11 @@ func _ready() -> void:
 	var piano := tile_manager.add_tile_to_row(top_row, PianoScene, "Piano") as BasicInstrument
 	var source := tile_manager.add_tile_to_row(top_row, SourceScene, "Source", true, 1.44) as SourceInstrument
 
-	# Rows 1 and 2: full-width Guitar, then Viola.
-	var guitar := tile_manager.add_tile_from_scene(GuitarScene, "Guitar") as BasicInstrument
+	# Row 1: Guitar (left) and Sequence (right). Row 2: Viola.
+	var guitar_row := tile_manager.add_row()
+	var guitar := tile_manager.add_tile_to_row(guitar_row, GuitarScene, "Guitar") as BasicInstrument
+	var sequence := tile_manager.add_tile_to_row(
+		guitar_row, SequenceScene, "Sequence", true, 1.0) as SequenceInstrument
 	var viola := tile_manager.add_tile_from_scene(ViolaScene, "Viola") as BasicInstrument
 
 	if piano and guitar:
@@ -34,6 +38,14 @@ func _ready() -> void:
 			source.connect_to(guitar)
 		if viola:
 			source.connect_to(viola)
+
+	if sequence:
+		if piano:
+			sequence.connect_to(piano)
+		if guitar:
+			sequence.connect_to(guitar)
+		if viola:
+			sequence.connect_to(viola)
 
 
 ## Releases all notes on every instrument (Source's Clear button).
