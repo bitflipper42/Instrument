@@ -94,6 +94,18 @@ func play_note(note: String) -> bool:
 	return note_on(note)
 
 
+## Releases every active note (note-off for each) and emits those messages so
+## connected instruments release them too. The MIDI "all notes off" gesture.
+func release_all() -> void:
+	if active_notes.is_empty():
+		return
+	var released: Array = active_notes.keys()
+	active_notes.clear()
+	queue_redraw()
+	for midi in released:
+		midi_out.emit(MidiMessage.note_off(int(midi), 0, midi_channel))
+
+
 ## Applies an incoming MIDI message. Updates state only; never re-emits
 ## `midi_out` (so bidirectional wiring does not feed back).
 func receive_midi(message: MidiMessage) -> void:

@@ -13,7 +13,7 @@ This document is written for humans and for AI assistants continuing work on the
 | Main scene | `res://main.tscn` |
 | Root node | `Main` (Node2D) |
 | Window | Maximized (`window/size/mode=2`), canvas_items stretch |
-| Default layout | 3 horizontal tiles: Piano (top), Guitar (middle), Viola (bottom) |
+| Default layout | Row 0: Piano + square Source; Row 1: Guitar; Row 2: Viola |
 
 ## Running the project
 
@@ -33,9 +33,10 @@ Open `project.godot` in the Godot editor, or run the command above. Press **F5**
 ```
 Main (Node2D)                    main.gd
 └── TileManager (Node2D)         tile_manager.gd
-    ├── PianoInstrument          (top tile, spawned by TileManager)
-    ├── GuitarInstrument         (middle tile, added by main.gd)
-    └── ViolaInstrument          (bottom tile, added by main.gd)
+    ├── PianoInstrument          (row 0, left)
+    ├── SourceInstrument         (row 0, right, square)
+    ├── GuitarInstrument         (row 1)
+    └── ViolaInstrument          (row 2)
 ```
 
 `TileManager` owns all instrument tiles as child nodes. It positions them as **full-width horizontal bars stacked vertically**, reflowing on window resize.
@@ -49,18 +50,20 @@ InstTile
 └── BasicInstrument
     ├── PianoInstrument
     ├── GuitarInstrument
-    └── ViolaInstrument
+    ├── ViolaInstrument
+    └── SourceInstrument
 ```
 
 | Class | File | Role |
 |-------|------|------|
 | `InstTile` | `inst_tile.gd` | Base tile: rect layout, border, title, `set_rect()` |
-| `BasicInstrument` | `basic_instrument.gd` | MIDI note I/O: `active_notes` set, octave parsing, matching, `connect_to()` / `connect_bidirectional()`, shared input |
+| `BasicInstrument` | `basic_instrument.gd` | MIDI note I/O: `active_notes` set, octave parsing, matching, `release_all()`, `connect_to()` / `connect_bidirectional()`, shared input |
 | `MidiMessage` | `midi_message.gd` | Note-on/note-off message value object |
 | `PianoInstrument` | `piano_instrument.gd` | 64-key piano keyboard (A1–C7) |
 | `GuitarInstrument` | `guitar_instrument.gd` | 13-fret horizontal guitar neck (fret 13 extension zone) |
 | `ViolaInstrument` | `viola_instrument.gd` | 4-string fretted viola fingerboard (C3–A4) |
-| `TileManager` | `tile_manager.gd` | Spawns, lays out, and rearranges tiles |
+| `SourceInstrument` | `source_instrument.gd` | Control tile: note + scale dropdowns and a Clear button (UI via Control nodes) |
+| `TileManager` | `tile_manager.gd` | Spawns, lays out, and rearranges tiles (rows model) |
 
 Each concrete instrument has a matching `.tscn` scene file with the script attached.
 
@@ -77,6 +80,7 @@ Instrument/
 ├── piano_instrument.gd/.tscn
 ├── guitar_instrument.gd/.tscn
 ├── viola_instrument.gd/.tscn
+├── source_instrument.gd/.tscn  # Control tile (note + scale dropdowns, Clear button)
 ├── icon.svg
 ├── .gitignore             # Ignores .godot/, .import/, etc.
 └── README.md
@@ -84,16 +88,20 @@ Instrument/
 
 ## Tile system (`TileManager`)
 
-- **Layout**: Tiles are horizontal strips (full viewport width, equal height split).
-- **Default spawn**: `default_tile_count = 2`, `tile_scene = piano_instrument.tscn`.
+- **Layout**: A grid of **rows**. Rows stack vertically and split the viewport height equally; within a row, tiles are placed left to right. A tile marked **square** takes a fixed width equal to the row height; the remaining width is split equally among the non-square tiles in that row.
+- **Data model**: `rows: Array` — each row is an `Array` of `{ "tile": InstTile, "square": bool }`.
+- **Default spawn**: `default_tile_count = 0` (the layout is built explicitly from `main.gd`).
 - **API**:
-  - `add_tile(title)` — spawns using default `tile_scene`
-  - `add_tile_from_scene(scene, title)` — spawns a specific instrument scene
-  - `remove_tile(index)`, `swap_tiles(a, b)`, `move_tile(from, to)`
-  - `arrange_tiles()` — called on resize and after tile list changes
+  - `add_row()` — appends an empty row, returns its index
+  - `add_tile_to_row(row, scene, title, square := false)` — spawns a tile into a row
+  - `add_tile_from_scene(scene, title, square := false)` — new single-tile row
+  - `add_tile(title)` — new single-tile row using default `tile_scene`
+  - `remove_tile(tile)` — removes by reference; drops the row if it empties
+  - `all_tiles()` — flattened list of every tile (row-major)
+  - `arrange_tiles()` — called on resize and after the row list changes
 - **Exported knobs**: `spacing`, `margin`, `tile_scene`, `default_tile_count`
 
-Tiles receive their screen rect via `InstTile.set_rect(top_left, size)`, which sets `position` and `tile_size` and triggers `queue_redraw()`.
+Tiles receive their screen rect via `InstTile.set_rect(top_left, size)`, which sets `position` and `tile_size` and triggers `queue_redraw()`. Tiles that host UI (e.g. `SourceInstrument`) override `set_rect` to reflow their controls.
 
 ## Note system (`BasicInstrument`)
 
@@ -187,14 +195,14 @@ Each active octaved note also marks the same pitch class at ±1 and ±2 octaves 
 
 ## Current runtime wiring (`main.gd`)
 
-On `_ready()`:
+On `_ready()` (`default_tile_count = 0`, so nothing is auto-spawned):
 
-1. `TileManager` has already spawned 2 piano tiles.
-2. `main.gd` renames tile 0 to `"Piano"`.
-3. Removes tile 1, then adds `GuitarInstrument` and `ViolaInstrument` via `add_tile_from_scene`.
-4. Bidirectionally wires all three: piano ↔ guitar, piano ↔ viola, guitar ↔ viola.
+1. Row 0: adds `PianoInstrument` (flexible width) and a square `SourceInstrument` via `add_tile_to_row`.
+2. Row 1: adds `GuitarInstrument`; Row 2: adds `ViolaInstrument` (each `add_tile_from_scene`).
+3. Bidirectionally wires the playable three: piano ↔ guitar, piano ↔ viola, guitar ↔ viola.
+4. Connects `source.clear_pressed` to `_release_all_notes()`, which calls `release_all()` on every `BasicInstrument`.
 
-Result: play notes on any instrument → the others highlight the matching key/fret/position. Because notes are note-on/note-off, multiple held notes light up everywhere at once.
+Result: play notes on any instrument → the others highlight the matching key/fret/position. Because notes are note-on/note-off, multiple held notes light up everywhere at once. Source's **Clear** releases all of them.
 
 ### Input gestures
 
@@ -228,6 +236,15 @@ Both gestures are handled by `BasicInstrument._input()`, which hit-tests via the
 - **Strings**: 4 strings in fifths, standard viola tuning — top to bottom on screen: A4 → D4 → G3 → C3 (array index 3 → 0). Width tapers from low C to high A (`STRING_WIDTHS`).
 - **Position markers**: Dots at positions 3, 5, 7 (numbered), viola-style.
 - **Shares** the base `_note_at()`/marker logic; primary and ±2 octave neighbor markers behave as on the other instruments.
+
+## SourceInstrument
+
+A control tile (square, in the piano's row) built from **Control nodes**, not `_draw`:
+
+- **UI**: a `VBoxContainer` holding a row (`HBoxContainer`) of two `OptionButton` dropdowns, an expanding spacer, and a bottom-centered Clear `Button`. The container is repositioned in an overridden `set_rect`.
+- **Dropdowns**: root note (12 chromatic names) and scale type (`Major`, `Minor`, `Major Pentatonic`, `Minor Pentatonic`). Both use `clip_text` so the long labels never overflow the square tile; the note dropdown is fixed-narrow, the scale dropdown expands.
+- **Signals/accessors**: `clear_pressed`, `scale_selection_changed(root_note, scale)`, `selected_root_note()`, `selected_scale()`.
+- **Clear**: emits `clear_pressed`; `main.gd` releases all notes on every instrument. The dropdown selection has no functional effect yet (placeholder for future note generation).
 
 ## Drawing and input patterns
 
@@ -273,6 +290,7 @@ Do **not** modify `BasicInstrument` for one-off behavior — derive a new class 
 12. Octave neighbor markers (±2 octaves) via `_note_matches_octave_neighbors()`; guitar fret 13 extension zone
 13. `ViolaInstrument` (four-string fretted fingerboard, C3–A4) added to the layout
 14. Multi-note MIDI model: `MidiMessage`, note-on/note-off, `active_notes` set, latch + momentary input gestures
+15. `TileManager` rows model (multiple tiles per row, square sizing); `SourceInstrument` control tile with note/scale dropdowns and a Clear-all button
 
 ## Out of scope / not yet implemented
 
