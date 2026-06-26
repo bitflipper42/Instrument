@@ -57,6 +57,18 @@ func is_note_active(note: String) -> bool:
 	return midi >= 0 and active_notes.has(midi)
 
 
+## True when any active note shares the pitch class of `note` (any octave).
+func is_pitch_class_active(note: String) -> bool:
+	var midi := _name_to_midi(note)
+	if midi < 0:
+		return false
+	var pc := midi % 12
+	for active_midi in active_notes:
+		if int(active_midi) % 12 == pc:
+			return true
+	return false
+
+
 ## Starts a note (note-on). Updates state and emits `midi_out`.
 func note_on(note: String, velocity: int = default_velocity) -> bool:
 	var midi := _name_to_midi(note)
@@ -247,6 +259,10 @@ func _input(event: InputEvent) -> void:
 			_held_note = -1
 
 
+func _active_note_label_font_size() -> int:
+	return 48
+
+
 func _draw() -> void:
 	super._draw()
 	if active_notes.is_empty():
@@ -257,7 +273,7 @@ func _draw() -> void:
 	names.sort()
 	var text := ", ".join(names)
 	var font := ThemeDB.fallback_font
-	var font_size := 48
+	var font_size := _active_note_label_font_size()
 	var text_size := font.get_string_size(text, HORIZONTAL_ALIGNMENT_LEFT, -1, font_size)
 	var pos := Vector2(
 		(tile_size.x - text_size.x) * 0.5,

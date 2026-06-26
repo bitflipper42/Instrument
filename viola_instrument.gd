@@ -30,6 +30,7 @@ const BOARD_PADDING := Vector2(10.0, 8.0)
 const MARKER_ZONE_PADDING := 6.0
 ## Per-string line width (index 0 = low C … 3 = high A).
 const STRING_WIDTHS: PackedFloat32Array = [2.0, 1.6, 1.3, 1.0]
+const OPEN_STRING_WIDTH_MULTIPLIER := 3.0
 
 var _board_rect := Rect2()
 var _open_zone_rect := Rect2()
@@ -49,6 +50,11 @@ func _ready() -> void:
 	_bold_marker_font = FontVariation.new()
 	_bold_marker_font.base_font = ThemeDB.fallback_font
 	_bold_marker_font.variation_embolden = 1.2
+
+
+func receive_midi(message: MidiMessage) -> void:
+	super.receive_midi(message)
+	queue_redraw()
 
 
 func _draw() -> void:
@@ -227,13 +233,19 @@ func _draw_bridge() -> void:
 		nut_color.darkened(0.12), 1.5)
 
 
+func _string_line_width(string_idx: int) -> float:
+	var width := STRING_WIDTHS[string_idx]
+	if is_pitch_class_active(_note_for(string_idx, 0)):
+		width *= OPEN_STRING_WIDTH_MULTIPLIER
+	return width
+
+
 func _draw_strings() -> void:
 	var end_x := _bridge_rect.position.x if _bridge_rect.size.x > 0.0 else _board_rect.position.x + _board_rect.size.x
 	var start_x := _open_zone_rect.position.x
 	for string_idx in STRING_COUNT:
 		var y := _string_y[string_idx]
-		var width := STRING_WIDTHS[string_idx]
-		draw_line(Vector2(start_x, y), Vector2(end_x, y), string_color, width)
+		draw_line(Vector2(start_x, y), Vector2(end_x, y), string_color, _string_line_width(string_idx))
 
 
 func _draw_zone_note_labels(zone: Rect2, position: int) -> void:

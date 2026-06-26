@@ -51,8 +51,14 @@ func add_row() -> int:
 
 
 ## Creates a tile from `scene` and appends it to `row_index`. When `square` is
-## true the tile is sized as a square (side = row height). Returns the tile.
-func add_tile_to_row(row_index: int, scene: PackedScene, title: String = "", square: bool = false) -> InstTile:
+## true the tile width is `row_height * width_factor` (height stays row height).
+func add_tile_to_row(
+	row_index: int,
+	scene: PackedScene,
+	title: String = "",
+	square: bool = false,
+	width_factor: float = 1.0,
+) -> InstTile:
 	if row_index < 0 or row_index >= rows.size():
 		push_warning("TileManager: invalid row index %d" % row_index)
 		return null
@@ -61,7 +67,7 @@ func add_tile_to_row(row_index: int, scene: PackedScene, title: String = "", squ
 	tile.tile_color = _PALETTE[index % _PALETTE.size()]
 	tile.title = title if title != "" else "Tile %d" % (index + 1)
 	add_child(tile)
-	rows[row_index].append({"tile": tile, "square": square})
+	rows[row_index].append({"tile": tile, "square": square, "width_factor": width_factor})
 	arrange_tiles()
 	return tile
 
@@ -122,7 +128,7 @@ func _arrange_row(row: Array, x0: float, y: float, total_width: float, row_heigh
 	var flexible_count := 0
 	for entry in row:
 		if entry["square"]:
-			square_width_sum += row_height
+			square_width_sum += row_height * float(entry.get("width_factor", 1.0))
 		else:
 			flexible_count += 1
 	var flexible_width := total_width - h_spacing - square_width_sum
@@ -131,6 +137,10 @@ func _arrange_row(row: Array, x0: float, y: float, total_width: float, row_heigh
 		per_flexible = maxf(flexible_width / float(flexible_count), 0.0)
 	var x := x0
 	for entry in row:
-		var w: float = row_height if entry["square"] else per_flexible
+		var w: float
+		if entry["square"]:
+			w = row_height * float(entry.get("width_factor", 1.0))
+		else:
+			w = per_flexible
 		(entry["tile"] as InstTile).set_rect(Vector2(x, y), Vector2(w, row_height))
 		x += w + spacing
