@@ -13,7 +13,7 @@ This document is written for humans and for AI assistants continuing work on the
 | Main scene | `res://main.tscn` |
 | Root node | `Main` (Node2D) |
 | Window | Maximized (`window/size/mode=2`), canvas_items stretch |
-| Default layout | Row 0: Piano + square Source; Row 1: Guitar; Row 2: Viola |
+| Default layout | Row 0: Piano + square Source; Row 1: Guitar + square Sequence; Row 2: Viola; Row 3: NAF |
 
 ## Running the project
 
@@ -35,8 +35,10 @@ Main (Node2D)                    main.gd
 └── TileManager (Node2D)         tile_manager.gd
     ├── PianoInstrument          (row 0, left)
     ├── SourceInstrument         (row 0, right, square)
-    ├── GuitarInstrument         (row 1)
-    └── ViolaInstrument          (row 2)
+    ├── GuitarInstrument         (row 1, left)
+    ├── SequenceInstrument       (row 1, right, square)
+    ├── ViolaInstrument          (row 2)
+    └── NafInstrument            (row 3)
 ```
 
 `TileManager` owns all instrument tiles as child nodes. It positions them as **full-width horizontal bars stacked vertically**, reflowing on window resize.
@@ -51,7 +53,9 @@ InstTile
     ├── PianoInstrument
     ├── GuitarInstrument
     ├── ViolaInstrument
-    └── SourceInstrument
+    ├── NafInstrument
+    ├── SourceInstrument
+    └── SequenceInstrument
 ```
 
 | Class | File | Role |
@@ -62,6 +66,7 @@ InstTile
 | `PianoInstrument` | `piano_instrument.gd` | 64-key piano keyboard (A1–C7) |
 | `GuitarInstrument` | `guitar_instrument.gd` | 13-fret horizontal guitar neck (fret 13 extension zone) |
 | `ViolaInstrument` | `viola_instrument.gd` | 4-string fretted viola fingerboard (C3–A4) |
+| `NafInstrument` | `naf_instrument.gd` | 6-hole Native American flute, A minor pentatonic (A4–A5) |
 | `SourceInstrument` | `source_instrument.gd` | Control tile: note + scale dropdowns and a Clear button (UI via Control nodes) |
 | `TileManager` | `tile_manager.gd` | Spawns, lays out, and rearranges tiles (rows model) |
 
@@ -80,6 +85,7 @@ Instrument/
 ├── piano_instrument.gd/.tscn
 ├── guitar_instrument.gd/.tscn
 ├── viola_instrument.gd/.tscn
+├── naf_instrument.gd/.tscn     # Native American flute (6-hole, A minor pentatonic)
 ├── source_instrument.gd/.tscn  # Control tile (note + scale dropdowns, Clear button)
 ├── icon.svg
 ├── .gitignore             # Ignores .godot/, .import/, etc.
@@ -88,11 +94,11 @@ Instrument/
 
 ## Tile system (`TileManager`)
 
-- **Layout**: A grid of **rows**. Rows stack vertically and split the viewport height equally; within a row, tiles are placed left to right. A tile marked **square** takes a fixed width equal to the row height; the remaining width is split equally among the non-square tiles in that row.
+- **Layout**: A grid of **rows**. Rows stack vertically and split the viewport height in proportion to their **weights** (`row_weights`, parallel to `rows`; default `1.0`); within a row, tiles are placed left to right. A tile marked **square** takes a fixed width equal to the row height; the remaining width is split equally among the non-square tiles in that row.
 - **Data model**: `rows: Array` — each row is an `Array` of `{ "tile": InstTile, "square": bool }`.
 - **Default spawn**: `default_tile_count = 0` (the layout is built explicitly from `main.gd`).
 - **API**:
-  - `add_row()` — appends an empty row, returns its index
+  - `add_row(weight := 1.0)` — appends an empty row, returns its index; `weight` sets its share of viewport height (e.g. `0.6` makes a shorter row)
   - `add_tile_to_row(row, scene, title, square := false)` — spawns a tile into a row
   - `add_tile_from_scene(scene, title, square := false)` — new single-tile row
   - `add_tile(title)` — new single-tile row using default `tile_scene`
@@ -198,9 +204,10 @@ Each active octaved note also marks the same pitch class at ±1 and ±2 octaves 
 On `_ready()` (`default_tile_count = 0`, so nothing is auto-spawned):
 
 1. Row 0: adds `PianoInstrument` (flexible width) and a square `SourceInstrument` via `add_tile_to_row`.
-2. Row 1: adds `GuitarInstrument`; Row 2: adds `ViolaInstrument` (each `add_tile_from_scene`).
-3. Bidirectionally wires the playable three: piano ↔ guitar, piano ↔ viola, guitar ↔ viola.
-4. Connects `source.clear_pressed` to `_release_all_notes()`, which calls `release_all()` on every `BasicInstrument`.
+2. Row 1: adds `GuitarInstrument` and a square `SequenceInstrument`. Row 2: `ViolaInstrument`. Row 3: `NafInstrument` (in a taller row added via `add_row(1.2)`).
+3. Bidirectionally wires the playable instruments: piano ↔ guitar, piano ↔ viola, guitar ↔ viola, and NAF ↔ each of piano/guitar/viola.
+4. `source` and `sequence` fan out to every playable instrument (one-way `connect_to`, including the NAF).
+5. Connects `source.clear_pressed` to `_release_all_notes()`, which calls `release_all()` on every `BasicInstrument`.
 
 Result: play notes on any instrument → the others highlight the matching key/fret/position. Because notes are note-on/note-off, multiple held notes light up everywhere at once. Source's **Clear** releases all of them.
 
@@ -236,6 +243,20 @@ Both gestures are handled by `BasicInstrument._input()`, which hit-tests via the
 - **Strings**: 4 strings in fifths, standard viola tuning — top to bottom on screen: A4 → D4 → G3 → C3 (array index 3 → 0). Width tapers from low C to high A (`STRING_WIDTHS`).
 - **Position markers**: Dots at positions 3, 5, 7 (numbered), viola-style.
 - **Shares** the base `_note_at()`/marker logic; primary and ±2 octave neighbor markers behave as on the other instruments.
+
+## NafInstrument
+
+A 6-hole Native American flute. Unlike the chromatic keyboard/neck instruments, the
+NAF natively plays a **minor pentatonic** scale ("mode 1"), so it only highlights
+incoming notes that fall in its scale and stays dark for the rest.
+
+- **Tuning**: Key of **A**, fundamental `A4` (MIDI 69, all holes closed). Mode-1 fingering intervals `[0, 3, 5, 7, 10, 12]` → `A, C, D, E, G, A`.
+- **Fingerings** (`FINGERINGS`, hole 0 = mouth … 5 = foot): the first four notes open sequentially from the foot, but the ♭7 (`G`) and the octave (`A`) use **forked/cross fingerings** per the Flutopedia mode-1 chart (`<xxx|xxx <xxx|xxo <xxx|xoo <xxx|ooo <xox|ooo <oox|ooo`).
+- **Range**: Single (normal-breath) register, `A4`–`A5`, all within the piano's range so cross-highlighting is visible.
+- **Layout**: A decorative horizontal **tube** (mouthpiece left → foot right) with a "bird"/fetish block near the left third and six finger holes along the right. Below it, a **fingering row**: each cell shows the note name and a 6-dot **open/closed hole diagram** (filled = covered, ring = open).
+- **Interaction**: Inherits `BasicInstrument._input()` (left-click toggles, right-hold momentary). `_note_at()` hit-tests the fingering cells; `_can_play()` restricts local plays to scale notes via `_is_scale_note()`.
+- **Highlight**: **Octave-agnostic** — overrides `_note_matches` to use `is_pitch_class_active()`, so a fingering lights up (`active_marker_color`) whenever its pitch class is sounding in any octave; there are no separate octave-neighbor markers. The body holes animate to show the matching fingering's open/closed pattern via `_active_open_holes()`.
+- **Drawing**: Overrides `_draw()` completely (`_update_layout()` → cached `_tube_rect` / `_hole_centers` / `_fingering_cells`, then `_draw_flute()` + `_draw_fingerings()`).
 
 ## SourceInstrument
 
@@ -291,6 +312,8 @@ Do **not** modify `BasicInstrument` for one-off behavior — derive a new class 
 13. `ViolaInstrument` (four-string fretted fingerboard, C3–A4) added to the layout
 14. Multi-note MIDI model: `MidiMessage`, note-on/note-off, `active_notes` set, latch + momentary input gestures
 15. `TileManager` rows model (multiple tiles per row, square sizing); `SourceInstrument` control tile with note/scale dropdowns and a Clear-all button
+16. `SequenceInstrument` control tile (chord sequence editor, BPM stepper, metronome tick)
+17. `NafInstrument` (6-hole Native American flute, A minor pentatonic, single register)
 
 ## Out of scope / not yet implemented
 

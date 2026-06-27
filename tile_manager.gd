@@ -20,6 +20,10 @@ const InstTileScene := preload("res://inst_tile.tscn")
 ## Rows of tiles. Each row is an Array of { "tile": InstTile, "square": bool }.
 var rows: Array = []
 
+## Per-row vertical weight (parallel to `rows`). Rows split the viewport height in
+## proportion to these weights, so a weight < 1.0 makes a row shorter than the rest.
+var row_weights: Array[float] = []
+
 const _PALETTE: Array[Color] = [
 	Color(0.15, 0.18, 0.27),
 	Color(0.18, 0.24, 0.22),
@@ -44,9 +48,11 @@ func all_tiles() -> Array[InstTile]:
 	return out
 
 
-## Appends an empty row and returns its index.
-func add_row() -> int:
+## Appends an empty row and returns its index. `weight` sets the row's share of the
+## viewport height relative to other rows (1.0 = a normal full-height row).
+func add_row(weight: float = 1.0) -> int:
 	rows.append([])
+	row_weights.append(weight)
 	return rows.size() - 1
 
 
@@ -92,6 +98,8 @@ func remove_tile(tile: InstTile) -> void:
 				tile.queue_free()
 				if row.is_empty():
 					rows.remove_at(r)
+					if r < row_weights.size():
+						row_weights.remove_at(r)
 				arrange_tiles()
 				return
 
@@ -112,11 +120,23 @@ func arrange_tiles() -> void:
 	var screen := get_viewport().get_visible_rect().size
 	var available := screen - margin * 2.0
 	var total_v_spacing := spacing * float(row_count - 1)
-	var row_height := (available.y - total_v_spacing) / float(row_count)
+	var content_height := available.y - total_v_spacing
+	var total_weight := 0.0
+	for i in row_count:
+		total_weight += _row_weight(i)
+	if total_weight <= 0.0:
+		total_weight = float(row_count)
 	var y := margin.y
-	for row in rows:
-		_arrange_row(row, margin.x, y, available.x, row_height)
+	for i in row_count:
+		var row_height := content_height * (_row_weight(i) / total_weight)
+		_arrange_row(rows[i], margin.x, y, available.x, row_height)
 		y += row_height + spacing
+
+
+func _row_weight(row_index: int) -> float:
+	if row_index < 0 or row_index >= row_weights.size():
+		return 1.0
+	return row_weights[row_index]
 
 
 func _arrange_row(row: Array, x0: float, y: float, total_width: float, row_height: float) -> void:
