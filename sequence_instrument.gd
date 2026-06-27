@@ -114,15 +114,20 @@ func _build_ui() -> void:
 	_bpm_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_RIGHT
 	bpm_row.add_child(_bpm_label)
 
+	var action_row := HBoxContainer.new()
+	action_row.add_theme_constant_override("separation", 6)
+	controls.add_child(action_row)
+
 	_tick_checkbox = CheckBox.new()
 	_tick_checkbox.text = "Tick"
 	_tick_checkbox.button_pressed = true
-	controls.add_child(_tick_checkbox)
+	_tick_checkbox.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	action_row.add_child(_tick_checkbox)
 
 	_play_button = Button.new()
 	_play_button.text = "Play"
-	_play_button.size_flags_horizontal = Control.SIZE_SHRINK_CENTER
-	controls.add_child(_play_button)
+	_play_button.size_flags_horizontal = Control.SIZE_SHRINK_END
+	action_row.add_child(_play_button)
 
 	_code_edit.text_changed.connect(_on_text_changed)
 	_bpm_slider.value_changed.connect(_on_bpm_changed)
