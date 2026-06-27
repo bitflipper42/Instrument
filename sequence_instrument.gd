@@ -17,9 +17,8 @@ const DEFAULT_SEQUENCE := "C G Am F"
 
 var _canvas: CanvasLayer
 var _ui: VBoxContainer
-var _text_stack: Control
-var _sequence_display: RichTextLabel
-var _text_edit: TextEdit
+var _code_edit: CodeEdit
+var _highlighter: ChordSequenceHighlighter
 var _current_label: Label
 var _bpm_slider: HSlider
 var _bpm_label: Label
@@ -42,6 +41,7 @@ func _ready() -> void:
 		title = "Sequence"
 	set_process(true)
 	_build_ui()
+	_highlighter.set_colors(valid_token_color, invalid_token_color, active_token_color)
 	_layout_ui()
 	_reparse_sequence()
 
@@ -55,38 +55,33 @@ func _build_ui() -> void:
 	_ui.mouse_filter = Control.MOUSE_FILTER_STOP
 	_canvas.add_child(_ui)
 
-	_text_stack = Control.new()
-	_text_stack.size_flags_vertical = Control.SIZE_EXPAND_FILL
-	_text_stack.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-	_text_stack.clip_contents = true
-	_ui.add_child(_text_stack)
-
-	_sequence_display = RichTextLabel.new()
-	_sequence_display.set_anchors_preset(Control.PRESET_FULL_RECT)
-	_sequence_display.bbcode_enabled = true
-	_sequence_display.scroll_active = false
-	_sequence_display.fit_content = false
-	_sequence_display.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	_sequence_display.add_theme_font_size_override("normal_font_size", 11)
-	_sequence_display.add_theme_stylebox_override("normal", StyleBoxEmpty.new())
-	_sequence_display.add_theme_stylebox_override("focus", StyleBoxEmpty.new())
-	_text_stack.add_child(_sequence_display)
-
-	_text_edit = TextEdit.new()
-	_text_edit.set_anchors_preset(Control.PRESET_FULL_RECT)
-	_text_edit.text = DEFAULT_SEQUENCE
-	_text_edit.placeholder_text = "C G Am F"
-	_text_edit.wrap_mode = TextEdit.LINE_WRAPPING_NONE
-	_text_edit.focus_mode = Control.FOCUS_ALL
-	_text_edit.mouse_filter = Control.MOUSE_FILTER_STOP
-	_text_edit.add_theme_font_size_override("font_size", 11)
-	_text_edit.add_theme_color_override("font_color", Color(1.0, 1.0, 1.0, 0.0))
-	_text_edit.add_theme_color_override("font_readonly_color", Color(1.0, 1.0, 1.0, 0.0))
-	_text_edit.add_theme_color_override("caret_color", Color(0.92, 0.95, 1.0))
-	_text_edit.add_theme_color_override("selection_color", Color(0.28, 0.55, 0.85, 0.35))
-	_text_edit.add_theme_stylebox_override("normal", StyleBoxEmpty.new())
-	_text_edit.add_theme_stylebox_override("focus", StyleBoxEmpty.new())
-	_text_stack.add_child(_text_edit)
+	_code_edit = CodeEdit.new()
+	_code_edit.text = DEFAULT_SEQUENCE
+	_code_edit.placeholder_text = "C G Am F"
+	_code_edit.wrap_mode = TextEdit.LINE_WRAPPING_BOUNDARY
+	_code_edit.focus_mode = Control.FOCUS_ALL
+	_code_edit.mouse_filter = Control.MOUSE_FILTER_STOP
+	_code_edit.size_flags_vertical = Control.SIZE_EXPAND_FILL
+	_code_edit.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	_code_edit.gutters_draw_line_numbers = false
+	_code_edit.gutters_draw_fold_gutter = false
+	_code_edit.minimap_draw = false
+	_code_edit.highlight_current_line = false
+	_code_edit.draw_spaces = false
+	_code_edit.draw_tabs = false
+	_code_edit.line_folding = false
+	_code_edit.code_completion_enabled = false
+	_code_edit.indent_automatic = false
+	_code_edit.auto_brace_completion_enabled = false
+	_code_edit.add_theme_font_size_override("font_size", 11)
+	var editor_bg := StyleBoxFlat.new()
+	editor_bg.bg_color = Color(0.10, 0.12, 0.18, 0.55)
+	editor_bg.set_corner_radius_all(4)
+	_code_edit.add_theme_stylebox_override("normal", editor_bg)
+	_code_edit.add_theme_stylebox_override("focus", editor_bg)
+	_highlighter = ChordSequenceHighlighter.new()
+	_code_edit.syntax_highlighter = _highlighter
+	_ui.add_child(_code_edit)
 
 	_current_label = Label.new()
 	_current_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
@@ -129,7 +124,7 @@ func _build_ui() -> void:
 	_play_button.size_flags_horizontal = Control.SIZE_SHRINK_CENTER
 	controls.add_child(_play_button)
 
-	_text_edit.text_changed.connect(_on_text_changed)
+	_code_edit.text_changed.connect(_on_text_changed)
 	_bpm_slider.value_changed.connect(_on_bpm_changed)
 	_play_button.pressed.connect(_on_play_pressed)
 	_on_bpm_changed(_bpm_slider.value)
@@ -159,7 +154,6 @@ func _input(_event: InputEvent) -> void:
 
 
 func _draw() -> void:
-	# Tile chrome only — current chord is shown in the UI label.
 	var rect := Rect2(Vector2.ZERO, tile_size)
 	draw_rect(rect, tile_color, true)
 	draw_rect(rect, border_color, false, border_width)
@@ -195,56 +189,27 @@ func _on_play_pressed() -> void:
 func _reparse_sequence() -> void:
 	_parsed_chords.clear()
 	_valid_step_indices.clear()
-	for token in ChordParser.tokenize(_text_edit.text):
+	for token in ChordParser.tokenize(_code_edit.text):
 		var result := ChordParser.parse(token)
 		_parsed_chords.append(result)
 		if result["valid"]:
 			_valid_step_indices.append(_parsed_chords.size() - 1)
-	_update_sequence_display()
+	_refresh_highlight(false)
 
 
-func _update_sequence_display() -> void:
-	if _sequence_display == null:
-		return
-	if _text_edit.text.is_empty():
-		_sequence_display.text = "[color=#666666]%s[/color]" % _text_edit.placeholder_text
-		return
-	var bbcode := ""
-	var chord_i := 0
-	var valid_hex := valid_token_color.to_html(false)
-	var invalid_hex := invalid_token_color.to_html(false)
-	var active_hex := active_token_color.to_html(false)
-	for line_i in _text_edit.get_line_count():
-		if line_i > 0:
-			bbcode += "\n"
-		var line := _text_edit.get_line(line_i)
-		var col := 0
-		var first_token := true
-		while col < line.length():
-			while col < line.length() and line[col] == " ":
-				bbcode += " "
-				col += 1
-			if col >= line.length():
-				break
-			if not first_token:
-				bbcode += " "
-			first_token = false
-			var start := col
-			while col < line.length() and line[col] != " ":
-				col += 1
-			var token := line.substr(start, col - start)
-			if chord_i < _parsed_chords.size():
-				var chord: Dictionary = _parsed_chords[chord_i]
-				if chord_i == _active_parsed_index and _active_parsed_index >= 0:
-					bbcode += "[bgcolor=#%s][color=#ffffff]%s[/color][/bgcolor]" % [active_hex, token]
-				elif not chord["valid"]:
-					bbcode += "[color=#%s]%s[/color]" % [invalid_hex, token]
-				else:
-					bbcode += "[color=#%s]%s[/color]" % [valid_hex, token]
-				chord_i += 1
-			else:
-				bbcode += "[color=#%s]%s[/color]" % [invalid_hex, token]
-	_sequence_display.text = bbcode
+func _refresh_highlight(force_redraw: bool) -> void:
+	_highlighter.set_parsed_chords(_parsed_chords, _active_parsed_index)
+	if force_redraw:
+		# TextEdit only repaints syntax colors after lines_edited_from (godot#12503).
+		# Reassigning the highlighter forces a full re-fetch during playback.
+		var hi := _highlighter
+		_code_edit.syntax_highlighter = null
+		_code_edit.syntax_highlighter = hi
+	else:
+		_highlighter.clear_highlighting_cache()
+		for line in _code_edit.get_line_count():
+			_highlighter.get_line_syntax_highlighting(line)
+	_code_edit.queue_redraw()
 
 
 func _start_playback() -> void:
@@ -265,7 +230,7 @@ func _stop_playback() -> void:
 	_active_parsed_index = -1
 	_current_label.text = ""
 	_release_current_chord()
-	_update_sequence_display()
+	_refresh_highlight(true)
 
 
 func _restart_playback_from_current() -> void:
@@ -295,7 +260,7 @@ func _play_chord_at(parsed_index: int) -> void:
 	_active_parsed_index = parsed_index
 	_current_tones = (chord["tones"] as Array).duplicate()
 	_current_label.text = chord["token"]
-	_update_sequence_display()
+	_refresh_highlight(true)
 	if _tick_checkbox != null and _tick_checkbox.button_pressed:
 		_tick_player.play()
 	for midi in _current_tones:
@@ -337,3 +302,77 @@ func _make_tick_stream() -> AudioStreamWAV:
 	stream.stereo = false
 	stream.data = data
 	return stream
+
+
+class ChordSequenceHighlighter:
+	extends SyntaxHighlighter
+
+	var _parsed_by_line: Array = []
+	var _valid_color := Color(0.92, 0.95, 1.0)
+	var _invalid_color := Color(1.0, 0.35, 0.35)
+	var _active_color := Color(1.0, 0.2, 0.2)
+	var _active_chord_index := -1
+
+
+	func set_parsed_chords(chords: Array, active_chord_index: int = -1) -> void:
+		_active_chord_index = active_chord_index
+		_parsed_by_line = _group_tokens_by_line(chords)
+
+
+	func set_colors(valid_color: Color, invalid_color: Color, active_color: Color) -> void:
+		_valid_color = valid_color
+		_invalid_color = invalid_color
+		_active_color = active_color
+
+
+	func _get_line_syntax_highlighting(line: int) -> Dictionary:
+		var result := {}
+		if line < 0 or line >= _parsed_by_line.size():
+			return result
+		for entry in _parsed_by_line[line]:
+			var color := _valid_color
+			if not entry["valid"]:
+				color = _invalid_color
+			elif entry["chord_index"] == _active_chord_index:
+				color = _active_color
+			result[entry["start"]] = {"color": color}
+		return _sort_by_column(result)
+
+
+	func _sort_by_column(color_map: Dictionary) -> Dictionary:
+		var sorted := {}
+		var keys: Array = color_map.keys()
+		keys.sort()
+		for key in keys:
+			sorted[key] = color_map[key]
+		return sorted
+
+
+	func _group_tokens_by_line(chords: Array) -> Array:
+		var text_edit := get_text_edit()
+		if text_edit == null:
+			return []
+		var grouped: Array = []
+		var chord_i := 0
+		for line_i in text_edit.get_line_count():
+			grouped.append([])
+			var line := text_edit.get_line(line_i)
+			var col := 0
+			while col < line.length():
+				while col < line.length() and line[col] == " ":
+					col += 1
+				if col >= line.length():
+					break
+				var start := col
+				while col < line.length() and line[col] != " ":
+					col += 1
+				var valid := false
+				var chord_index := -1
+				if chord_i < chords.size():
+					valid = chords[chord_i]["valid"]
+					chord_index = chord_i
+					chord_i += 1
+				grouped[line_i].append({
+					"start": start, "end": col, "valid": valid, "chord_index": chord_index,
+				})
+		return grouped
